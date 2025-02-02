@@ -1,101 +1,178 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
+pragma solidity ^0.8.28;
 
 contract Ownable {
     address public owner;
-
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Caller is not the owner");
-        _;
-    }
 
     constructor() {
         owner = msg.sender;
     }
 
-    function transferOwnership(address newOwner) public onlyOwner {
-        require(newOwner != address(0), "New owner cannot be zero address");
-        emit OwnershipTransferred(owner, newOwner);
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not the owner");
+        _;
+    }
+
+    function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner!= address(0), "Invalid address");
         owner = newOwner;
     }
 }
 
-contract BaseAuction is Ownable {
-    struct Auction {
-        address payable seller;
-        string itemName;
-        uint256 highestBid;
-        address highestBidder;
-        uint256 endTime;
-        bool ended;
+contract PropertyManager is Ownable {
+    struct Property {
+        uint256 id;
+        address owner;
+        uint256 price;
+        string metadataHash;
+        bool isListed;
+        bool isVerified;
+        uint256 stakedAmount;
     }
 
-    uint256 public auctionCount;
-    mapping(uint256 => Auction) public auctions;
-    mapping(uint256 => mapping(address => uint256)) public pendingReturns;
+    uint256 public propertyCounter;
+    mapping(uint256 => Property) public properties;
 
-    event AuctionCreated(uint256 auctionId, address indexed seller, string itemName, uint256 endTime);
-    event NewBid(uint256 auctionId, address indexed bidder, uint256 bidAmount);
-    event AuctionEnded(uint256 auctionId, address winner, uint256 finalBid);
+    event PropertyListed(uint256 indexed id, address owner, uint256 price);
+    event PropertyVerified(uint256 indexed id, address verifier);
 
-    function createAuction(string memory _itemName, uint256 _duration) public {
-        require(_duration > 0, "Duration must be greater than 0");
+    function listProperty(uint256 _price, string memory _metadataHash) external payable {
+        require(_price > 0, "Price must be greater than 0");
+        require(msg.value == 1 ether, "Stake 1 ETH for listing");
 
-        auctionCount++;
-        auctions[auctionCount] = Auction({
-            seller: payable(msg.sender),
-            itemName: _itemName,
-            highestBid: 0,
-            highestBidder: address(0),
-            endTime: block.timestamp + _duration,
-            ended: false
+        propertyCounter++;
+        properties[propertyCounter] = Property({
+            id: propertyCounter,
+            owner: msg.sender,
+            price: _price,
+            metadataHash: _metadataHash,
+            isListed: true,
+            isVerified: false,
+            stakedAmount: msg.value
         });
 
-        emit AuctionCreated(auctionCount, msg.sender, _itemName, block.timestamp + _duration);
+        emit PropertyListed(propertyCounter, msg.sender, _price);
     }
 
-    function bid(uint256 _auctionId) public payable virtual {
-        Auction storage auction = auctions[_auctionId];
+    function verifyProperty(uint256 _id) external onlyOwner {
+        Property storage property = properties[_id];
+        require(!property.isVerified, "Already verified");
+        property.isVerified = true;
 
-        require(block.timestamp < auction.endTime, "Auction has ended");
-        require(msg.value > auction.highestBid, "Bid must be higher than the current highest bid");
+        payable(property.owner).transfer(property.stakedAmount);
+        property.stakedAmount = 0;
 
-        // Refund the previous highest bidder
-        if (auction.highestBid > 0) {
-            pendingReturns[_auctionId][auction.highestBidder] += auction.highestBid;
-        }
+        emit PropertyVerified(_id, msg.sender);
+    }
+}
 
-        // Update highest bid
-        auction.highestBid = msg.value;
-        auction.highestBidder = msg.sender;
-
-        emit NewBid(_auctionId, msg.sender, msg.value);
+contract EscrowManager is PropertyManager {
+    struct Escrow {
+        address buyer;
+        uint256 amount;
+        uint256 deadline;
+        bool isDisputed;
     }
 
-    function withdraw(uint256 _auctionId) public {
-        uint256 amount = pendingReturns[_auctionId][msg.sender];
-        require(amount > 0, "No funds to withdraw");
+    mapping (uint256 => Escrow) public escrows;
 
-        pendingReturns[_auctionId][msg.sender] = 0;
-        payable(msg.sender).transfer(amount);
+    event offerMade(uint256 indexed id, address buyer, uint256 amount);
+    event DisputedRaised(uint256 indexed id, address party);
+    event SettlementCompleted(uint256 indexed id, address buyer, address seller);
+
+    function makeOffer(uint256 _id) external payable {
+        Property storage property = properties[_id];
+
+        require(property.isListed, "Property not listed");
+
+        require(msg.value >= property.price,"Insufficient offer amount");
+
+        require(escrows[_id].buyer == address(0), "offer already exists");
+
+        escrows[_id] = Escrow({
+            buyer: msg.sender,
+            amount: msg.value,
+            deadline: block.timestamp + 7 days,
+            isDisputed: false
+        });
+        emit offerMade(_id, msg.sender, msg.value);
     }
 
-    function endAuction(uint256 _auctionId) public virtual {
-        Auction storage auction = auctions[_auctionId];
+    function confirmSale(uint256 _id) external {
+       Property storage property = properties[_id];
+       require(property.owner == msg.sender, "Not property owner");
 
-        require(block.timestamp >= auction.endTime, "Auction has not ended yet");
-        require(!auction.ended, "Auction has already ended");
-        require(msg.sender == auction.seller, "Only the seller can end the auction");
+       Escrow storage escrow = escrows[_id];
+       require(escrow.buyer!= address(0), "Not active offer");
+       require(!escrow.isDisputed, "Disputed pending");
 
-        auction.ended = true;
+        address buyer = escrow.buyer;
+        uint256 amount = escrow.amount;
 
-        if (auction.highestBid > 0) {
-            auction.seller.transfer(auction.highestBid);
-        }
+        payable(property.owner).transfer(amount);
 
-        emit AuctionEnded(_auctionId, auction.highestBidder, auction.highestBid);
+        property.owner = buyer;
+        property.isListed = false;
+
+        payable (property.owner).transfer(property.stakedAmount);
+        property.stakedAmount = 0;
+
+        emit SettlementCompleted(_id, buyer, property.owner);
+        delete escrows[_id];
+
+    }
+
+    function raiseDispute(uint256 _id) external {
+        require(msg.sender == properties[_id].owner || msg.sender == escrows[_id].buyer, "Not party to transaction");
+        escrows[_id].isDisputed = true;
+
+        emit DisputedRaised(_id, msg.sender);
+    }    
+
+}
+
+contract RealEstatePlatform is EscrowManager {
+    struct RentalAgreement {
+        address tenant;
+        uint256 rentAmount;
+        uint256 startTime;
+        uint256 endTime;
+        bool isActive;
+    }
+
+    mapping (uint256 => RentalAgreement) public rentalAgreements;
+
+    event RentalAgreementCreated(uint256 indexed id, address tenant, uint256 rentAmount);
+    event RentalAgreementEnded(uint256 indexed id, address tenant);
+
+    function createdRentalAgreement(
+        uint256 _id,
+        address _tenant,
+        uint256 _rentAmount,
+        uint256 _duration
+    ) external onlyOwner {
+        Property storage property = properties[_id];
+        require(property.owner != address(0), "Property does not exist");
+
+        require(rentalAgreements[_id].tenant == address(0), "Rental already active");
+
+        rentalAgreements[_id] = RentalAgreement({
+            tenant: _tenant,
+            rentAmount: _rentAmount,
+            startTime: block.timestamp,
+            endTime: block.timestamp + _duration,
+            isActive: true
+        });
+
+        emit RentalAgreementCreated(_id, _tenant, _rentAmount);
+    }
+
+    function endRentalAgreement(uint256 _id) external onlyOwner {
+     RentalAgreement storage agreement = rentalAgreements[_id];
+        require(agreement.isActive, "Rental not active");
+        agreement.isActive = false;
+        emit RentalAgreementEnded(_id, agreement.tenant);
+
+
     }
 }
