@@ -9,7 +9,6 @@
 <body>
   <!-- Navigation Bar -->
   <nav>
-    <div class="logo">MathGenius</div>
     <ul class="nav-links">
       <li><a href="index.html">Home</a></li>
       <li><a href="blogs.html">Blogs</a></li>
@@ -21,18 +20,38 @@
     <h1>My Blog Posts</h1>
 
     <div class="blog-post">
-      <h2>What is JavaScript?</h2>
-      <p>JavaScript is a versatile programming language used to create dynamic web pages. It allows developers to add interactivity, animations, and complex functionalities to websites. With frameworks like React and Node.js, JavaScript has become a cornerstone of modern web development.</p>
+      <h2>What is difference between var,let,const?</h2>
+      <p>var is either global or function-scoped. If you declare it inside a function, it only exists there. 
+        But if you declare it outside a function, it becomes available everywhere (global scope).
+        .</p>
+
+        <p>let is block-scoped, meaning it only exists within the curly braces {} where it’s defined. 
+           </p>
+
+           <p>const is the opposite—it’s steady and unchanging. Once you assign a value to a const, you can’t change it.
+
+            Scope : Just like let, const is block-scoped. It only exists within the block where it’s declared</p>
     </div>
 
     <div class="blog-post">
-      <h2>Why Learn HTML and CSS?</h2>
-      <p>HTML and CSS are the foundation of web development. HTML structures the content, while CSS styles it. Together, they enable you to build beautiful, responsive websites. Learning these languages is essential for anyone aspiring to become a front-end developer or designer.</p>
+      <h2>What is difference between find() and filter() method?</h2>
+      <p>find method is used to locate the first element in an array that satisfies a given condition.
+       It returns the first matching element (not an array). If no element matches the condition, it returns undefined.</p>
+       <p>filter method is used to create a new array containing all elements that satisfy a given condition.
+       It returns a new array with all matching elements. If no elements match, it returns an empty array ([])</p>
     </div>
 
     <div class="blog-post">
-      <h2>How to Stay Consistent in Coding?</h2>
-      <p>Consistency in coding comes from setting realistic goals and practicing daily. Break down complex problems into smaller tasks, and use online resources to stay motivated. Remember, every expert was once a beginner, so keep pushing forward!</p>
+      <h2>how do you select an element in the dom using javascript . Name of few methods?</h2>
+     <p>document.getElementById()
+        Selects an element by its unique ID .
+ A single element (or null if no element is found)
+     </p>
+     <p>document.querySelectorAll()
+        Selects all elements that match a CSS selector.
+A NodeList (similar to an array) containing all matching elements.
+When you need to work with multiple elements that share a common selector.
+     </p>
     </div>
   </div>
 
