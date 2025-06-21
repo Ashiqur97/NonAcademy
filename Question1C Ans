@@ -1,0 +1,36 @@
+const crypto = require('crypto');
+
+function createMerkleTree(transactions) {
+  if (transactions.length === 0) {
+    return null;
+  }
+  
+  let currentLevel = transactions.map(tx => 
+    crypto.createHash('sha256').update(tx).digest('hex')
+  );
+
+  while (currentLevel.length > 1) {
+    const nextLevel = [];
+    
+    for (let i = 0; i < currentLevel.length; i += 2) {
+      const left = currentLevel[i];
+
+      const right = i + 1 < currentLevel.length ? currentLevel[i + 1] : left;
+
+      const combined = left + right;
+
+      const hash = crypto.createHash('sha256').update(combined).digest('hex');
+      nextLevel.push(hash);
+    }
+    
+    currentLevel = nextLevel;
+  }
+  
+  return currentLevel[0]; 
+}
+
+
+const transactions = ['tx1', 'tx2', 'tx3', 'tx4'];
+console.log('Transactions:', transactions);
+const merkleRoot = createMerkleTree(transactions);
+console.log('Merkle Root:', merkleRoot);
