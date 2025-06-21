@@ -1,0 +1,96 @@
+const crypto = require('crypto');
+
+function createMerkleTree(transactions) {
+  if (transactions.length === 0) {
+    return null;
+  }
+  
+  let currentLevel = transactions.map(tx => 
+    crypto.createHash('sha256').update(tx).digest('hex')
+  );
+
+  while (currentLevel.length > 1) {
+    const nextLevel = [];
+    
+    for (let i = 0; i < currentLevel.length; i += 2) {
+      const left = currentLevel[i];
+
+      const right = i + 1 < currentLevel.length ? currentLevel[i + 1] : left;
+
+      const combined = left + right;
+
+      const hash = crypto.createHash('sha256').update(combined).digest('hex');
+      nextLevel.push(hash);
+    }
+    
+    currentLevel = nextLevel;
+  }
+  
+  return currentLevel[0]; 
+}
+
+
+const transactions = ['tx1', 'tx2', 'tx3', 'tx4'];
+console.log('Transactions:', transactions);
+const merkleRoot = createMerkleTree(transactions);
+console.log('Merkle Root:', merkleRoot);
+
+
+
+
+Question 1D Ans:
+
+const crypto = require('crypto');
+
+class Block {
+  constructor(data, previousHash = '') {
+    this.timestamp = Date.now();
+    this.data = data;
+    this.previousHash = previousHash;
+    this.nonce = 0;
+    this.hash = this.calculateHash();
+  }
+
+  calculateHash() {
+    return crypto
+      .createHash('sha256')
+      .update(this.previousHash + this.timestamp + JSON.stringify(this.data) + this.nonce)
+      .digest('hex');
+  }
+}
+
+class Blockchain {
+  constructor() {
+    this.chain = [new Block('Genesis', '0')];
+    this.difficulty = 2; 
+  }
+
+  getLatestBlock() {
+    return this.chain[this.chain.length - 1];
+  }
+
+  addBlock(data) {
+    const newBlock = new Block(data, this.getLatestBlock().hash);
+    console.log('Mining block...');
+    
+    while (newBlock.hash.substring(0, this.difficulty) !== '0'.repeat(this.difficulty)) {
+      newBlock.nonce++;
+      newBlock.hash = newBlock.calculateHash();
+    }
+    
+    console.log('Block mined:', newBlock.hash);
+    this.chain.push(newBlock);
+  }
+
+  isValid() {
+    for (let i = 1; i < this.chain.length; i++) {
+      const current = this.chain[i];
+      const previous = this.chain[i - 1];
+
+      if (current.hash !== current.calculateHash()) return false;
+      if (current.previousHash !== previous.hash) return false;
+      if (current.hash.substring(0, this.difficulty) !== '0'.repeat(this.difficulty)) return false;
+    }
+    return true;
+  }
+}
