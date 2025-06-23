@@ -1,0 +1,54 @@
+const Web3 = require('web3');
+
+const provider = window.ethereum ? new Web3(window.ethereum) : new Web3.providers.HttpProvider('http://localhost:8545');
+const web3 = new Web3(provider);
+
+const contractABI = [...]; 
+const contractAddress = '0x123...'; 
+
+const contract = new web3.eth.Contract(contractABI, contractAddress);
+
+async function interactWithContract() {
+    try {
+      
+        let accounts;
+        if (window.ethereum) {
+            const requestedAccounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+            accounts = requestedAccounts;
+        } else {
+            accounts = await web3.eth.getAccounts();
+        }
+
+        const userAccount = accounts[0];
+
+      
+        const result = await contract.methods.getValue().call();
+        console.log('Current value:', result);
+
+        
+        const estimatedGas = await contract.methods.setValue(42).estimateGas({ from: userAccount });
+
+    
+        const tx = await contract.methods.setValue(42).send({
+            from: userAccount,
+            gas: estimatedGas 
+        });
+
+        console.log('Transaction hash:', tx.transactionHash);
+
+        // Optional: Listen for events
+        const events = await contract.getPastEvents('ValueChanged', {
+            fromBlock: tx.blockNumber,
+            toBlock: 'latest'
+        });
+
+        if (events.length > 0) {
+            console.log('Event triggered:', events[0].returnValues);
+        }
+
+    } catch (error) {
+        console.error('Error occurred:', error.message || error);
+    }
+}
+
+interactWithContract();
