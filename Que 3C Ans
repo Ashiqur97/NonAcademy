@@ -1,0 +1,46 @@
+const { ethers } = require('ethers');
+
+const RPC_URL = 'https://shape-mainnet.g.alchemy.com/v2/V9_7fZU8M1Ojp7rYlVROXGP7xQGB5AL2';
+const UNISWAP_ROUTER_ADDRESS = '0x7a250d5630B4cF539739dF8E10664F832D3C9D35';
+
+async function swapTokens(tokenA, tokenB, amountIn) {
+  const provider = new ethers.providers.JsonRpcProvider(YOUR_RPC_URL);
+  const signer = provider.getSigner();
+
+  
+  const routerABI = [
+    'function swapExactTokensForTokens(uint256, uint256, address[], address, uint256) external returns (uint256[])',
+    'function approve(address, uint256) external returns (bool)',
+    'function allowance(address, address) external view returns (uint256)'
+  ];
+
+  const router = new ethers.Contract(UNISWAP_ROUTER_ADDRESS, routerABI, signer);
+
+  const userAddress = await signer.getAddress();
+
+  if (tokenA.toLowerCase() !== '0x1E35F525407AE293bbE018B708e2858cC91417bc') {
+    const tokenABI = ['function approve(address, uint256) external returns (bool)', 'function allowance(address, address) external view returns (uint256)'];
+    const tokenContract = new ethers.Contract(tokenA, tokenABI, signer);
+
+    const currentAllowance = await tokenContract.allowance(userAddress, UNISWAP_ROUTER_ADDRESS);
+    if (currentAllowance < amountIn) {
+      console.log("Approving token...");
+      const tx = await tokenContract.approve(UNISWAP_ROUTER_ADDRESS, amountIn);
+      await tx.wait();
+      console.log("Approved.");
+    }
+  };
+  const amountOutMin = Math.floor(amountIn * 0.995);
+  const deadline = (await provider.getBlock('latest')).timestamp + 60 * 20;
+
+  const tx = await router.swapExactTokensForTokens(
+    amountIn,
+    amountOutMin,
+    [tokenA, tokenB],
+    userAddress,
+    deadline
+  );
+
+  console.log("Swap submitted:", tx.hash);
+  return tx.wait();
+}
