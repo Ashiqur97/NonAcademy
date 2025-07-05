@@ -1,0 +1,56 @@
+const { ethers } = require("ethers");
+
+class PriceFeedReader {
+ 
+  constructor(provider, priceFeedAddress) {
+    if (!ethers.utils.isAddress(priceFeedAddress)) {
+      throw new Error("Invalid price feed contract address");
+    }
+
+    this.provider = provider;
+    this.priceFeed = new ethers.Contract(
+      priceFeedAddress,
+      this.aggregatorABI,
+      provider
+    );
+  }
+
+  // ABI for AggregatorV3Interface
+  get aggregatorABI() {
+    return [
+      "function latestRoundData() view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)"
+    ];
+  }
+
+ 
+  async getPrice() {
+    try {
+      const roundData = await this.priceFeed.latestRoundData();
+
+      const { answer, updatedAt, answeredInRound } = roundData;
+
+      // Check if the answer is stale (e.g., older than 24 hours)
+      const stalenessThreshold = 24 * 60 * 60; // 24 hours in seconds
+      if (Math.floor(Date.now() / 1000) - updatedAt > stalenessThreshold) {
+        throw new Error("Price feed data is stale");
+      }
+
+      // Chainlink price feeds have 8 decimals
+      const scaledPrice = Number(ethers.utils.formatUnits(answer.toString(), 8));
+      return scaledPrice;
+    } catch (error) {
+      console.error("Error fetching price data:", error);
+      throw error;
+    }
+  }
+
+
+  async getPriceInUSD(amount) {
+    if (typeof amount !== "number" || isNaN(amount) || amount < 0) {
+      throw new Error("Amount must be a non-negative number");
+    }
+
+    const price = await this.getPrice(); // price per whole unit (e.g., 1 ETH)
+    return price * amount;
+  }
+}
