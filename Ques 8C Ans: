@@ -1,0 +1,60 @@
+const IPFS = require('ipfs-http-client');
+
+class IPFSUploader {
+  constructor() {
+    // configuration for the IPFS HTTP client
+    this.ipfs = IPFS.create({
+      host: 'ipfs.infura.io',
+      port: 5001,
+      protocol: 'https'
+    });
+  }
+
+  async uploadFile(file) {
+    //  check if `file` is a Buffer or Blob
+    if (!file || !(file instanceof Buffer || typeof file === 'string')) {
+      throw new Error('Invalid file input. Must be a Buffer or string.');
+    }
+
+    // Upload to IPFS
+    const result = await this.ipfs.add(file);
+
+    //  Return  immutable gateway URL (no space in URL)
+    return `https://ipfs.io/ipfs/ ${result.cid}`;
+  }
+
+  async uploadJSON(data) {
+    //  Validate data and add error handling
+    if (!data) {
+      throw new Error('Data cannot be null or undefined.');
+    }
+
+    let jsonStr;
+    try {
+      jsonStr = JSON.stringify(data);
+    } catch (err) {
+      throw new Error(`Failed to stringify JSON: ${err.message}`);
+    }
+
+    const result = await this.ipfs.add(jsonStr);
+
+    // Return CID as string for consistency
+    return result.cid.toString();
+  }
+
+  async pin(cid) {
+    // Implement actual pinning via IPFS pin API
+    if (!cid) {
+      throw new Error('CID is required for pinning.');
+    }
+
+    try {
+      await this.ipfs.pin.add(cid);
+      console.log(`Pinned CID: ${cid}`);
+      return true;
+    } catch (err) {
+      console.error(`Pin failed: ${err.message}`);
+      return false;
+    }
+  }
+}
