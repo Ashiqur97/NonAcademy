@@ -1,0 +1,40 @@
+const { expect } = require("chai");
+const { ethers } = require("hardhat");
+
+describe("Token", function () {
+  let token;
+  let owner;
+  let addr1;
+
+  beforeEach(async function () {
+    // Get signers 
+    [owner, addr1] = await ethers.getSigners();
+
+    // Deploy the contract
+    const Token = await ethers.getContractFactory("Token");
+    token = await Token.deploy();
+    await token.waitForDeployment(); // wait for deployment
+  });
+
+  it("Should transfer tokens correctly", async function () {
+    const amount = 50;
+
+    // Perform the transfer
+    await token.connect(owner).transfer(addr1.address, amount);
+
+    // Check balances
+    expect(await token.balanceOf(addr1.address)).to.equal(amount);
+  });
+
+  it("Should fail when transferring more than balance", async function () {
+    const initialBalance = await token.balanceOf(owner.address);
+    const tooMuch = initialBalance + BigInt(1); // Try to send more than balance
+
+    // Expect revert with reason or custom error
+    await expect(
+      token.connect(owner).transfer(addr1.address, tooMuch)
+    ).to.be.revertedWithCustomError(token, "ERC20InsufficientBalance"); // If using OpenZeppelin
+    // Or if using default Hardhat Chai matchers:
+    // await expect(token.transfer(addr1.address, tooMuch)).to.be.reverted;
+  });
+});
