@@ -1,0 +1,176 @@
+const { expect } = require("chai");
+const { ethers } = require("hardhat");
+const { time } = require("@nomicfoundation/hardhat-network-helpers");
+
+describe("LendingProtocol", function () {
+  let lendingPool, token, oracle;
+  let owner, lender, borrower;
+  const INITIAL_SUPPLY = ethers.parseUnits("1000000", 18);
+  const ONE_DAY = 86400;
+
+  beforeEach(async function () {
+    
+    [owner, lender, borrower] = await ethers.getSigners();
+
+
+    const Token = await ethers.getContractFactory("MockERC20");
+    token = await Token.deploy("TestToken", "TST", INITIAL_SUPPLY);
+    await token.waitForDeployment();
+
+   
+    const PriceOracle = await ethers.getContractFactory("MockPriceOracle");
+    oracle = await PriceOracle.deploy();
+    await oracle.waitForDeployment();
+
+    
+    const LendingProtocol = await ethers.getContractFactory("LendingProtocol");
+    lendingPool = await LendingProtocol.deploy(await token.getAddress(), await oracle.getAddress());
+    await lendingPool.waitForDeployment();
+
+   
+    await token.transfer(lender.address, ethers.parseUnits("100000", 18));
+    await token.transfer(borrower.address, ethers.parseUnits("1000", 18));
+
+    // Approve spending by the pool
+    await token.connect(lender).approve(await lendingPool.getAddress(), ethers.MaxUint256);
+    await token.connect(borrower).approve(await lendingPool.getAddress(), ethers.MaxUint256);
+  });
+
+  describe("Deposits", function () {
+    it("Should allow users to deposit tokens into the pool", async function () {
+      const amount = ethers.parseUnits("1000", 18);
+
+      await expect(lendingPool.connect(lender).deposit(amount))
+        .to.emit(lendingPool, "Deposit")
+        .withArgs(lender.address, amount);
+
+      expect(await lendingPool.balanceOf(lender.address)).to.equal(amount);
+    });
+
+    it("Should increase total liquidity", async function () {
+      const amount = ethers.parseUnits("1000", 18);
+      await lendingPool.connect(lender).deposit(amount);
+      expect(await lendingPool.totalSupply()).to.equal(amount);
+    });
+
+    it("Should fail when depositing zero", async function () {
+      await expect(lendingPool.connect(lender).deposit(0)).to.be.revertedWithCustomError(
+        lendingPool,
+        "InvalidAmount"
+      );
+    });
+  });
+
+  describe("Borrowing", function () {
+    beforeEach(async function () {
+      
+      await lendingPool.connect(lender).deposit(ethers.parseUnits("10000", 18));
+    });
+
+    it("Should allow borrowers to take a loan against collateral", async function () {
+      const borrowAmount = ethers.parseUnits("1000", 18);
+
+      // Set collateral value in oracle
+      await oracle.setPrice(ethers.parseUnits("1", 18)); // $1 per token
+
+      // Borrower deposits ETH as collateral (via helper function or mocked)
+      await lendingPool.connect(borrower).depositCollateral({ value: ethers.parseEther("1") });
+
+      await expect(lendingPool.connect(borrower).borrow(borrowAmount))
+        .to.emit(lendingPool, "Borrow")
+        .withArgs(borrower.address, borrowAmount);
+
+      expect(await lendingPool.borrowBalance(borrower.address)).to.equal(borrowAmount);
+    });
+
+    it("Should fail when borrowing without sufficient collateral", async function () {
+      await expect(lendingPool.connect(borrower).borrow(ethers.parseUnits("1000", 18))).to.be.revertedWith(
+        "InsufficientCollateral"
+      );
+    });
+
+    it("Should fail when borrowing more than available liquidity", async function () {
+      await oracle.setPrice(ethers.parseUnits("1", 18));
+      await lendingPool.connect(borrower).depositCollateral({ value: ethers.parseEther("1") });
+
+      await expect(
+        lendingPool.connect(borrower).borrow(ethers.parseUnits("10000", 18))
+      ).to.be.revertedWith("InsufficientLiquidity");
+    });
+  });
+
+  describe("Liquidations", function () {
+    beforeEach(async function () {
+      await lendingPool.connect(lender).deposit(ethers.parseUnits("10000", 18));
+
+      await oracle.setPrice(ethers.parseUnits("1", 18));
+      await lendingPool.connect(borrower).depositCollateral({ value: ethers.parseEther("1") });
+
+      await lendingPool.connect(borrower).borrow(ethers.parseUnits("500", 18));
+    });
+
+    it("Should liquidate undercollateralized loans", async function () {
+   
+      await oracle.setPrice(ethers.parseUnits("0.4", 18));
+
+      const borrowerBalanceBefore = await ethers.provider.getBalance(borrower.address);
+
+      await expect(lendingPool.connect(owner).liquidate(borrower.address))
+        .to.emit(lendingPool, "Liquidation")
+        .withArgs(borrower.address);
+
+      expect(await lendingPool.borrowBalance(borrower.address)).to.equal(0);
+    });
+
+    it("Should fail to liquidate healthy positions", async function () {
+      await expect(lendingPool.connect(owner).liquidate(borrower.address)).to.be.revertedWith(
+        "PositionHealthy"
+      );
+    });
+  });
+
+  describe("Interest Accrual", function () {
+    beforeEach(async function () {
+      await lendingPool.connect(lender).deposit(ethers.parseUnits("10000", 18));
+      await oracle.setPrice(ethers.parseUnits("1", 18));
+      await lendingPool.connect(borrower).depositCollateral({ value: ethers.parseEther("1") });
+      await lendingPool.connect(borrower).borrow(ethers.parseUnits("500", 18));
+    });
+
+    it("Should accrue interest over time", async function () {
+      const initialDebt = await lendingPool.borrowBalance(borrower.address);
+
+      // Advance time by one day
+      await time.increase(ONE_DAY);
+
+      const debtAfterOneDay = await lendingPool.borrowBalance(borrower.address);
+      expect(debtAfterOneDay).to.be.gt(initialDebt);
+    });
+
+    it("Should track interest rates correctly", async function () {
+      const ratePerSecond = await lendingPool.borrowRatePerSecond();
+      const secondsElapsed = ONE_DAY * 3;
+      await time.increase(secondsElapsed);
+
+      const expectedDebt = ethers.parseUnits("500", 18) + ratePerSecond * BigInt(secondsElapsed);
+      const actualDebt = await lendingPool.borrowBalance(borrower.address);
+
+      expect(actualDebt).to.be.closeTo(expectedDebt, ethers.parseUnits("0.01", 18));
+    });
+  });
+
+  describe("Oracle Integration", function () {
+    it("Should update price and affect borrowing power", async function () {
+      await oracle.setPrice(ethers.parseUnits("1", 18));
+      await lendingPool.connect(borrower).depositCollateral({ value: ethers.parseEther("1") });
+
+      await lendingPool.connect(borrower).borrow(ethers.parseUnits("500", 18));
+
+      await oracle.setPrice(ethers.parseUnits("0.5", 18)); 
+      await expect(lendingPool.connect(owner).liquidate(borrower.address)).to.emit(
+        lendingPool,
+        "Liquidation"
+      );
+    });
+  });
+});
