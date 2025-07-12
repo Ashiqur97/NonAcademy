@@ -1,0 +1,105 @@
+import { useState, useEffect } from 'react';
+import { ethers } from 'ethers';
+
+// Example ABI (replace with actual token ABI)
+const abi = [
+  "function balanceOf(address account) view returns (uint256)"
+];
+
+function TokenBalance({ tokenAddress }) {
+  const [balance, setBalance] = useState("0");
+  const [account, setAccount] = useState(null);
+  const [provider, setProvider] = useState(null);
+
+  // Connect wallet
+  const connectWallet = async () => {
+    if (typeof window.ethereum === 'undefined') {
+      console.error('MetaMask not installed!');
+      return;
+    }
+
+    try {
+      const accounts = await window.ethereum.request({
+        method: 'eth_requestAccounts'
+      });
+      const account = accounts[0];
+      setAccount(account);
+
+      const web3Provider = new ethers.providers.Web3Provider(window.ethereum);
+      setProvider(web3Provider);
+
+      // Add chainChanged listener
+      window.ethereum.on('chainChanged', handleChainChanged);
+      window.ethereum.on('accountsChanged', handleAccountsChanged);
+
+      return web3Provider; // Return provider for reuse
+    } catch (err) {
+      console.error('Failed to connect wallet:', err);
+    }
+  };
+
+  // Get token balance
+  const getBalance = async (walletProvider, account) => {
+    if (!tokenAddress || !account || !walletProvider) return;
+
+    try {
+      const contract = new ethers.Contract(tokenAddress, abi, walletProvider);
+      const bal = await contract.balanceOf(account);
+      const formattedBal = ethers.utils.formatUnits(bal, 18); // Adjust decimals if needed
+      setBalance(formattedBal);
+    } catch (err) {
+      console.error('Failed to fetch balance:', err);
+    }
+  };
+
+  // Handle account change
+  const handleAccountsChanged = (accounts) => {
+    if (accounts.length > 0) {
+      setAccount(accounts[0]);
+    } else {
+      setAccount(null);
+      setBalance("0");
+    }
+  };
+
+  // Handle network change
+  const handleChainChanged = () => {
+    window.location.reload(); // Simplest way to reset state
+  };
+
+  // Effect to connect wallet and fetch balance
+  useEffect(() => {
+    let isMounted = true;
+    let cleanup = false;
+
+    const init = async () => {
+      const walletProvider = await connectWallet();
+      if (!isMounted || !walletProvider || !account) return;
+
+      await getBalance(walletProvider, account);
+    };
+
+    if (!cleanup) init();
+
+    return () => {
+      isMounted = false;
+      cleanup = true;
+      if (window.ethereum?.removeListener) {
+        window.ethereum.removeListener('chainChanged', handleChainChanged);
+        window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+      }
+    };
+  }, [tokenAddress]); 
+
+  return (
+    <div>
+      {account ? (
+        <p>Balance: {balance}</p>
+      ) : (
+        <button onClick={connectWallet}>Connect Wallet</button>
+      )}
+    </div>
+  );
+}
+
+export default TokenBalance;
